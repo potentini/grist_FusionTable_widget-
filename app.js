@@ -1,51 +1,64 @@
 /* global grist */
 const TARGET_TABLE = 'Planning_Items';
 
+const SOURCE_TABLE_DEFINITIONS = [
+  {
+    expectedTableId: 'Niveau1',
+    level: 1,
+    keyPrefix: 'N1',
+    parent: null,
+    requiredFields: ['Projet', 'Table', 'DateFin_Prj', 'Progression_Prj', 'DateDebut_Prj', 'Priorite', 'Statut_Prj'],
+    fields: {
+      name: ['Projet'],
+      start: ['DateDebut_Prj'],
+      end: ['DateFin_Prj'],
+      status: ['Statut_Prj'],
+      responsible: ['Responsable_Prj'],
+      progress: ['Progression_Prj'],
+    },
+  },
+  {
+    expectedTableId: 'Niveau2',
+    level: 2,
+    keyPrefix: 'N2',
+    parent: { tableId: 'Niveau1', keyPrefix: 'N1', fields: ['Projet'] },
+    requiredFields: ['Tache', 'DateFin_Tache', 'Statut_Tache', 'Avancement_Tache', 'DateDebut_Tache', 'Sous_Taches', 'Projet', 'Table', 'level1SourceTableId'],
+    fields: {
+      name: ['Tache'],
+      start: ['DateDebut_Tache'],
+      end: ['DateFin_Tache'],
+      status: ['Statut_Tache'],
+      responsible: ['Responsable_Tache', 'Taches_Responsable_Tache'],
+      progress: ['Avancement_Tache'],
+    },
+  },
+  {
+    expectedTableId: 'Niveau3',
+    level: 3,
+    keyPrefix: 'N3',
+    parent: { tableId: 'Niveau2', keyPrefix: 'N2', fields: ['Tache'] },
+    requiredFields: ['Sous_Tache', 'Responsable_ST', 'DateFin_ST', 'Statut_ST', 'Description', 'DateDebut_ST', 'ColDateDebut_Niveau2', 'ColDateFin_Niveau2', 'TabSource_Niveau3', 'ColDateDebut_Niveau3', 'ColDateFin_Niveau3', 'Tache'],
+    fields: {
+      name: ['Sous_Tache'],
+      start: ['DateDebut_ST'],
+      end: ['DateFin_ST'],
+      status: ['Statut_ST'],
+      responsible: ['Responsable_ST'],
+      progress: ['Avancement_ST', 'Progression_ST'],
+    },
+  },
+];
+
 const DEFAULT_CONFIG = {
-  sources: [
-    {
-      tableId: 'Niveau1',
-      level: 1,
-      keyPrefix: 'N1',
-      parent: null,
-      fields: {
-        name: ['Projet'],
-        start: ['DateDebut_Prj'],
-        end: ['DateFin_Prj'],
-        status: ['Statut_Prj'],
-        responsible: ['Responsable_Prj'],
-        progress: ['Progression_Prj'],
-      },
-    },
-    {
-      tableId: 'Niveau2',
-      level: 2,
-      keyPrefix: 'N2',
-      parent: { tableId: 'Niveau1', keyPrefix: 'N1', fields: ['Projet'] },
-      fields: {
-        name: ['Tache'],
-        start: ['DateDebut_Tache'],
-        end: ['DateFin_Tache'],
-        status: ['Statut_Tache'],
-        responsible: ['Responsable_Tache', 'Taches_Responsable_Tache'],
-        progress: ['Avancement_Tache'],
-      },
-    },
-    {
-      tableId: 'Niveau3',
-      level: 3,
-      keyPrefix: 'N3',
-      parent: { tableId: 'Niveau2', keyPrefix: 'N2', fields: ['Tache'] },
-      fields: {
-        name: ['Sous_Tache'],
-        start: ['DateDebut_ST'],
-        end: ['DateFin_ST'],
-        status: ['Statut_ST'],
-        responsible: ['Responsable_ST'],
-        progress: ['Avancement_ST', 'Progression_ST'],
-      },
-    },
-  ],
+  autoDetectSourceTables: true,
+  sources: SOURCE_TABLE_DEFINITIONS.map(({ expectedTableId, level, keyPrefix, parent, fields }) => ({
+    tableId: expectedTableId,
+    expectedTableId,
+    level,
+    keyPrefix,
+    parent,
+    fields,
+  })),
 };
 
 const REQUIRED_COLUMNS = [
@@ -110,7 +123,58 @@ function renderSources() {
 
 function mergeConfig(options) {
   if (!options || !Array.isArray(options.sources)) return DEFAULT_CONFIG;
-  return { ...DEFAULT_CONFIG, ...options, sources: options.sources };
+  return { ...DEFAULT_CONFIG, ...options, autoDetectSourceTables: false, sources: options.sources };
+}
+
+function normalizeTableName(tableId) {
+  return String(tableId || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function findTableByExpectedName(tables, expectedTableId) {
+  if (tables.includes(expectedTableId)) return expectedTableId;
+  const normalizedExpected = normalizeTableName(expectedTableId);
+  return tables.find((tableId) => normalizeTableName(tableId) === normalizedExpected) || null;
+}
+
+function resolveDefaultSources(tables) {
+  const detectedTableIds = new Map();
+  const missing = [];
+
+  for (const definition of SOURCE_TABLE_DEFINITIONS) {
+    const tableId = findTableByExpectedName(tables, definition.expectedTableId);
+    if (tableId) {
+      detectedTableIds.set(definition.expectedTableId, tableId);
+    } else {
+      missing.push(definition.expectedTableId);
+    }
+  }
+
+  if (missing.length) {
+    throw new Error(`Table(s) source introuvable(s) : ${missing.join(', ')}. Le widget détecte par défaut les tables nommées Niveau1, Niveau2 et Niveau3.`);
+  }
+
+  return SOURCE_TABLE_DEFINITIONS.map(({ expectedTableId, level, keyPrefix, parent, fields }) => ({
+    tableId: detectedTableIds.get(expectedTableId),
+    expectedTableId,
+    level,
+    keyPrefix,
+    parent: parent
+      ? { ...parent, tableId: detectedTableIds.get(parent.tableId) || parent.tableId }
+      : null,
+    fields,
+  }));
+}
+
+function resolveSourceTables(tables) {
+  if (state.config.autoDetectSourceTables) return resolveDefaultSources(tables);
+
+  const missing = state.config.sources
+    .map((source) => source.tableId)
+    .filter((tableId) => !tables.includes(tableId));
+  if (missing.length) {
+    throw new Error(`Table(s) source introuvable(s) : ${missing.join(', ')}.`);
+  }
+  return state.config.sources;
 }
 
 async function ensurePlanningTable(tables) {
@@ -237,18 +301,9 @@ function addTimelineFields(items) {
   });
 }
 
-function validateSourceTables(tables) {
-  const missing = state.config.sources
-    .map((source) => source.tableId)
-    .filter((tableId) => !tables.includes(tableId));
-  if (missing.length) {
-    throw new Error(`Table(s) source introuvable(s) : ${missing.join(', ')}. Le widget attend Niveau1, Niveau2 et Niveau3 par défaut.`);
-  }
-}
-
-async function buildPlanningItems() {
+async function buildPlanningItems(sources) {
   const allItems = [];
-  for (const source of state.config.sources) {
+  for (const source of sources) {
     const rows = await fetchRows(source.tableId);
     allItems.push(...rows.map((row) => buildBaseItem(source, row)));
   }
@@ -263,9 +318,9 @@ async function syncPlanningItems() {
 
   try {
     const tables = await grist.docApi.listTables();
-    validateSourceTables(tables);
+    const sources = resolveSourceTables(tables);
     await ensurePlanningTable(tables);
-    const items = await buildPlanningItems();
+    const items = await buildPlanningItems(sources);
     const operations = items.map((fields) => ({ require: { Item_Key: fields.Item_Key }, fields }));
     if (operations.length) {
       await grist.getTable(TARGET_TABLE).upsert(operations, { onMany: 'first' });
