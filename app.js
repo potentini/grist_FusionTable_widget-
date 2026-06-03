@@ -4,45 +4,45 @@ const TARGET_TABLE = 'Planning_Items';
 const DEFAULT_CONFIG = {
   sources: [
     {
-      tableId: 'Projets',
+      tableId: 'Niveau1',
       level: 1,
-      keyPrefix: 'P',
+      keyPrefix: 'N1',
       parent: null,
       fields: {
-        name: ['Nom', 'Name', 'Titre', 'Title', 'Projet'],
-        start: ['Date_debut', 'Debut', 'Start', 'Start_Date', 'Date début'],
-        end: ['Date_fin', 'Fin', 'End', 'End_Date', 'Date fin'],
-        status: ['Statut', 'Status', 'Etat'],
-        responsible: ['Responsable', 'Responsible', 'Owner', 'Assigné'],
-        progress: ['Avancement', 'Progress', 'Progression', 'Pourcentage'],
+        name: ['Projet'],
+        start: ['DateDebut_Prj'],
+        end: ['DateFin_Prj'],
+        status: ['Statut_Prj'],
+        responsible: ['Responsable_Prj'],
+        progress: ['Progression_Prj'],
       },
     },
     {
-      tableId: 'Taches',
+      tableId: 'Niveau2',
       level: 2,
-      keyPrefix: 'T',
-      parent: { tableId: 'Projets', keyPrefix: 'P', fields: ['Projet', 'Projet_ID', 'Project', 'Parent', 'Parent_ID'] },
+      keyPrefix: 'N2',
+      parent: { tableId: 'Niveau1', keyPrefix: 'N1', fields: ['Projet'] },
       fields: {
-        name: ['Nom', 'Name', 'Titre', 'Title', 'Tache', 'Tâche'],
-        start: ['Date_debut', 'Debut', 'Start', 'Start_Date', 'Date début'],
-        end: ['Date_fin', 'Fin', 'End', 'End_Date', 'Date fin'],
-        status: ['Statut', 'Status', 'Etat'],
-        responsible: ['Responsable', 'Responsible', 'Owner', 'Assigné'],
-        progress: ['Avancement', 'Progress', 'Progression', 'Pourcentage'],
+        name: ['Tache'],
+        start: ['DateDebut_Tache'],
+        end: ['DateFin_Tache'],
+        status: ['Statut_Tache'],
+        responsible: ['Responsable_Tache', 'Taches_Responsable_Tache'],
+        progress: ['Avancement_Tache'],
       },
     },
     {
-      tableId: 'Sous_taches',
+      tableId: 'Niveau3',
       level: 3,
-      keyPrefix: 'ST',
-      parent: { tableId: 'Taches', keyPrefix: 'T', fields: ['Tache', 'Tâche', 'Tache_ID', 'Task', 'Parent', 'Parent_ID'] },
+      keyPrefix: 'N3',
+      parent: { tableId: 'Niveau2', keyPrefix: 'N2', fields: ['Tache'] },
       fields: {
-        name: ['Nom', 'Name', 'Titre', 'Title', 'Sous_tache', 'Sous tâche'],
-        start: ['Date_debut', 'Debut', 'Start', 'Start_Date', 'Date début'],
-        end: ['Date_fin', 'Fin', 'End', 'End_Date', 'Date fin'],
-        status: ['Statut', 'Status', 'Etat'],
-        responsible: ['Responsable', 'Responsible', 'Owner', 'Assigné'],
-        progress: ['Avancement', 'Progress', 'Progression', 'Pourcentage'],
+        name: ['Sous_Tache'],
+        start: ['DateDebut_ST'],
+        end: ['DateFin_ST'],
+        status: ['Statut_ST'],
+        responsible: ['Responsable_ST'],
+        progress: ['Avancement_ST', 'Progression_ST'],
       },
     },
   ],
@@ -113,8 +113,7 @@ function mergeConfig(options) {
   return { ...DEFAULT_CONFIG, ...options, sources: options.sources };
 }
 
-async function ensurePlanningTable() {
-  const tables = await grist.docApi.listTables();
+async function ensurePlanningTable(tables) {
   if (!tables.includes(TARGET_TABLE)) {
     const columns = REQUIRED_COLUMNS.map(({ id, type }) => ({ id, type, isFormula: false }));
     await grist.docApi.applyUserActions([['AddTable', TARGET_TABLE, columns]]);
@@ -161,10 +160,25 @@ function sourceKey(source, recordId) {
   return `${source.keyPrefix}:${recordId}`;
 }
 
+function getReferenceId(value) {
+  if (!Array.isArray(value)) return value;
+  if (value[0] === 'L') return value[1];
+  return value[0];
+}
+
+function formatDisplayValue(value) {
+  if (value === null || value === undefined) return null;
+  if (Array.isArray(value)) {
+    const values = value[0] === 'L' ? value.slice(1) : value;
+    return values.filter((entry) => entry !== null && entry !== undefined && entry !== '').join(', ');
+  }
+  return String(value);
+}
+
 function getParentKey(source, row) {
   if (!source.parent) return null;
   const rawParent = firstValue(row, source.parent.fields);
-  const parentId = Array.isArray(rawParent) ? rawParent[0] : rawParent;
+  const parentId = getReferenceId(rawParent);
   return parentId ? `${source.parent.keyPrefix}:${parentId}` : null;
 }
 
@@ -189,11 +203,11 @@ function buildBaseItem(source, row) {
     Level: source.level,
     Source_Table: source.tableId,
     Source_Record_ID: row.id,
-    Name: firstValue(row, source.fields.name) || `${source.tableId} #${row.id}`,
+    Name: formatDisplayValue(firstValue(row, source.fields.name)) || `${source.tableId} #${row.id}`,
     Start: normalizeDate(firstValue(row, source.fields.start)),
     End: normalizeDate(firstValue(row, source.fields.end)),
-    Status: firstValue(row, source.fields.status),
-    Responsible: firstValue(row, source.fields.responsible),
+    Status: formatDisplayValue(firstValue(row, source.fields.status)),
+    Responsible: formatDisplayValue(firstValue(row, source.fields.responsible)),
     Progress: normalizeProgress(firstValue(row, source.fields.progress)),
     Updated_At: Math.floor(Date.now() / 1000),
   };
@@ -223,6 +237,15 @@ function addTimelineFields(items) {
   });
 }
 
+function validateSourceTables(tables) {
+  const missing = state.config.sources
+    .map((source) => source.tableId)
+    .filter((tableId) => !tables.includes(tableId));
+  if (missing.length) {
+    throw new Error(`Table(s) source introuvable(s) : ${missing.join(', ')}. Le widget attend Niveau1, Niveau2 et Niveau3 par défaut.`);
+  }
+}
+
 async function buildPlanningItems() {
   const allItems = [];
   for (const source of state.config.sources) {
@@ -239,7 +262,9 @@ async function syncPlanningItems() {
   setStatus('busy', 'Synchronisation en cours', 'Lecture des tables source et mise à jour de Planning_Items…');
 
   try {
-    await ensurePlanningTable();
+    const tables = await grist.docApi.listTables();
+    validateSourceTables(tables);
+    await ensurePlanningTable(tables);
     const items = await buildPlanningItems();
     const operations = items.map((fields) => ({ require: { Item_Key: fields.Item_Key }, fields }));
     if (operations.length) {
