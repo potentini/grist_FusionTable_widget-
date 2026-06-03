@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Grist Planning Items Sync</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">Widget Grist</p>
+          <h1>Synchronisation Planning_Items</h1>
+          <p class="subtitle">
+            Fusionne Niveau1, Niveau2 et Niveau3 dans une table de synthèse exploitable par un Gantt ou une timeline multi-niveaux.
+          </p>
+        </div>
+        <button id="syncButton" type="button">Synchroniser maintenant</button>
+      </section>
+
+      <section class="panel status-panel" aria-live="polite">
+        <div class="status-dot" id="statusDot"></div>
+        <div>
+          <h2 id="statusTitle">En attente</h2>
+          <p id="statusMessage">Connectez idéalement cette première instance à Niveau1, puis lancez une synchronisation.</p>
+        </div>
+      </section>
+
+      <section class="grid">
+        <article class="panel">
+          <h2>Tables lues</h2>
+          <ul id="sourceList" class="source-list"></ul>
+        </article>
+        <article class="panel">
+          <h2>Résultat</h2>
+          <dl class="metrics">
+            <div><dt>Lignes préparées</dt><dd id="preparedCount">0</dd></div>
+            <div><dt>Dernière synchro</dt><dd id="lastSync">—</dd></div>
+          </dl>
+        </article>
+      </section>
+
+      <section class="panel">
+        <details>
+          <summary>Configuration des champs source</summary>
+          <p>
+            Le widget utilise des noms de colonnes fréquents par défaut. Vous pouvez les adapter depuis les options du widget Grist avec un JSON compatible avec <code>DEFAULT_CONFIG</code> dans <code>app.js</code>.
+          </p>
+        </details>
+      </section>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>
